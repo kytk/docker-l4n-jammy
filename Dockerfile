@@ -235,11 +235,11 @@ EXPOSE 6080
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Switch to the new user
 USER brain
 ENV USER=brain
 
-CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+#CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
