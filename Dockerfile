@@ -1,6 +1,6 @@
 ## Dockerfile to make "docker-l4n-jammy"
 ## This file makes a container image of docker-lin4neuro
-## K. Nemoto 29 Sep 2024
+## K. Nemoto 03 Oct 2024
 
 FROM ubuntu:22.04
 
@@ -46,7 +46,7 @@ RUN apt-get install -y python3-pip python3-venv python3-dev python3-tk \
 
 RUN python3 -m pip install --upgrade pip
 RUN pip install numpy pandas pydicom gdcm dcm2bids heudiconv \
-     nipype nibabel jupyter notebook bash_kernel && \
+     nipype nibabel jupyter notebook bash_kernel octave_kernel && \
     python3 -m bash_kernel.install
 
 # Install utilities
@@ -72,7 +72,6 @@ RUN apt-get install -y \
     system-config-printer \
     tree \
     unzip \
-    update-manager \
     vim  \
     zip \
     tcsh \
@@ -117,6 +116,13 @@ RUN mkdir -p /etc/skel/.local/share && \
 RUN mkdir -p /etc/skel/.config/menus && \
     cp ${parts}/config/menus/xfce-applications.menu /etc/skel/.config/menus
 
+# Customized panel, desktop, and theme
+RUN cp -r ${parts}/config/xfce4 /etc/skel/.config/
+
+# Desktop files
+RUN cp -r ${parts}/local/share/applications /etc/skel/.local/share/
+
+
 # Neuroimaging.directory
 RUN mkdir -p /etc/skel/.local/share/desktop-directories && \
     cp ${parts}/local/share/desktop-directories/Neuroimaging.directory \
@@ -124,13 +130,26 @@ RUN mkdir -p /etc/skel/.local/share/desktop-directories && \
 
 # Background image and remove an unnecessary image file
 RUN cp ${parts}/backgrounds/deep_ocean.png /usr/share/backgrounds && \
-    rm /usr/share/backgrounds/xfce/xfce-*.png && \
-    ln -s /usr/share/backgrounds/deep_ocean.png /usr/share/backgrounds/xfce/xfce-stripes.png
+    rm /usr/share/backgrounds/xfce/xfce-*.*p*g
+COPY xfce4-desktop.xml /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/
 
-# Customized panel, desktop, and theme
-RUN cp -r ${parts}/config/xfce4 /etc/skel/.config
+# Modified lightdm-gtk-greeter.conf
+RUN mkdir -p /usr/share/lightdm/lightdm-gtk-greeter.conf.d && \
+    cp ${parts}/lightdm/lightdm-gtk-greeter.conf.d/01_ubuntu.conf /usr/share/lightdm/lightdm-gtk-greeter.conf.d
 
+# Auto-login
+RUN mkdir -p /usr/share/lightdm/lightdm.conf.d && \
+    cp ${parts}/lightdm/lightdm.conf.d/10-ubuntu.conf \
+ /usr/share/lightdm/lightdm.conf.d
+
+# Clean packages
+RUN apt-get -y autoremove
+
+# alias
 RUN echo "alias open='xdg-open &> /dev/null'" >> /etc/skel/.bash_aliases
+
+# Deactivate screensaver
+RUN echo 'xset s off' >> /etc/skel/.xsession
 
 ##### Lin4Neuro settings end #####
 
@@ -191,16 +210,36 @@ RUN cd /usr/local && wget http://www.lin4neuro.net/lin4neuro/neuroimaging_softwa
     echo '#Surf_Ice' >> /etc/skel/.bash_aliases && \
     echo 'export PATH=$PATH:/usr/local/Surf_Ice' >> /etc/skel/.bash_aliases
 
-# FSL 6.0.7.13
-#RUN cd /usr/local && wget http://www.lin4neuro.net/lin4neuro/neuroimaging_software_packages/fsl-6.0.7.13-jammy.tar.gz && \
-#    tar -xvf fsl-6.0.7.6-jammy.tar.gz && rm fsl-6.0.7.6-jammy.tar.gz && \
-#    echo '' >> /etc/skel/.profile && \
-#    echo '# FSL Setup' >> /etc/skel/.profile && \
-#    echo 'FSLDIR=/usr/local/fsl' >> /etc/skel/.profile && \
-#    echo 'PATH=${FSLDIR}/share/fsl/bin:${PATH}' >> /etc/skel/.profile && \
-#    echo 'export FSLDIR PATH' >> /etc/skel/.profile && \
-#    echo '. ${FSLDIR}/etc/fslconf/fsl.sh' >> /etc/skel/.profile
+# FSL
+RUN cd /tmp && \
+    wget https://fsl.fmrib.ox.ac.uk/fsldownloads/fslinstaller.py && \
+    /usr/bin/python3 fslinstaller.py -d /usr/local/fsl && \
+echo '\n\
+# FSL Setup\n\
+FSLDIR=/usr/local/fsl\n\
+PATH=${FSLDIR}/share/fsl/bin:${PATH}\n\
+export FSLDIR PATH\n\
+. ${FSLDIR}/etc/fslconf/fsl.sh' >> /etc/skel/.bash_aliases && \
+sed -i 's/NoDisplay=true/NoDisplay=false/' /etc/skel/.local/share/applications/fsleyes.desktop
 
+# Octave
+RUN apt-get install -y octave
+
+# AlizaMS
+RUN cd /tmp && \
+curl -O -C - http://www.lin4neuro.net/lin4neuro/neuroimaging_software_packages/alizams_1.9.5+git0.c3ce1bd-1+1.1_amd64.deb && \
+apt install -y ./alizams_1.9.5+git0.c3ce1bd-1+1.1_amd64.deb && \
+rm alizams_1.9.5+git0.c3ce1bd-1+1.1_amd64.deb && \
+sed -i 's/NoDisplay=true/NoDisplay=false/' /etc/skel/.local/share/applications/alizams.desktop
+
+# dcm2niix
+RUN cd /usr/local && \
+mkdir /usr/local/dcm2niix && \
+wget https://github.com/rordenlab/dcm2niix/releases/download/v1.0.20240202/dcm2niix_lnx.zip && \
+unzip dcm2niix_lnx.zip -d /usr/local/dcm2niix && rm dcm2niix_lnx.zip && \
+echo '' >> /etc/skel/.bash_aliases && \
+echo '# dcm2niix' >> /etc/skel/.bash_aliases && \
+echo 'export PATH=/usr/local/dcm2niix:$PATH' >> /etc/skel/.bash_aliases
 
 
 
