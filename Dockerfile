@@ -1,177 +1,270 @@
-## Dockerfile to make "docker-l4n"
-## This file makes a container image of docker-lin4neuro
-## K. Nemoto 23 Feb 2024
+# syntax=docker/dockerfile:1
 
+# Dockerfile for kytk/lin4neuro-jammy with Multi-Stage Build
+# Author: K. Nemoto
+# Date: 16 Jan 2026
+# Description: This Dockerfile uses a multi-stage build to create a smaller,
+#              optimized container image for Lin4Neuro
+
+# 0.1.0: make it simple and add screenshooter to the panel
+
+#------------------------------------------------------------------------------
+# Stage 1: The "Builder" Stage
+# - Installs all build-time dependencies.
+# - Downloads, extracts, and installs all neuroimaging software.
+# - This stage will be large, but it is discarded after the build.
+#------------------------------------------------------------------------------
+FROM ubuntu:22.04 AS builder
+
+# Set non-interactive frontend for package installation
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Asia/Tokyo
+
+# Install build-time dependencies and essential tools
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      build-essential ca-certificates dkms \
+      curl wget git gnupg \
+      unzip zip p7zip-full pigz file 
+
+# Install all neuroimaging software
+RUN --mount=type=bind,source=packages,target=/tmp/packages \
+    set -ex && \
+    # MRIcroGL
+    unzip /tmp/packages/MRIcroGL_linux.zip -d /usr/local/ && \
+    # dcm2niix
+    mkdir -p /usr/local/dcm2niix && \
+    unzip /tmp/packages/dcm2niix_lnx.zip -d /usr/local/dcm2niix && \
+    # MRtrix3
+    unzip /tmp/packages/mrtrix3_jammy.zip -d /usr/local && \
+    # ANTs
+    unzip /tmp/packages/ANTs-jammy.zip -d /usr/local && \
+    # FreeSurfer (install deps first)
+    #apt install -y /tmp/packages/freesurfer_ubuntu22-8.1.0_amd64.deb && \
+    # MCR
+    #unzip /tmp/packages/MCRv97.zip -d /usr/local/freesurfer/8.1.0/ && \
+    # Prepare FreeSurfer subjects directory for the user
+    #mkdir -p /home/brain/freesurfer/8.1.0 && \
+    #mkdir -p /home/brain/matlab && \
+    #ln -s /usr/local/freesurfer/8.1.0/subjects /home/brain/freesurfer/8.1.0/ && \
+    #unzip /tmp/packages/bert.zip -d /usr/local/freesurfer/8.1.0/subjects/ && \
+    # Matlab MCR R2024b
+    #mkdir -p /tmp/mcr_r2024b && \
+    #cp /tmp/packages/MATLAB_Runtime_R2024b_Update_1_glnxa64.zip /tmp/mcr_r2024b/ && \
+    #cd /tmp/mcr_r2024b && \
+    #unzip MATLAB_Runtime_R2024b_Update_1_glnxa64.zip && \
+    #./install -mode silent -agreeToLicense yes -destinationFolder /usr/local/MATLAB/MCR/ && \
+    #rm -rf /tmp/mcr_r2024b && \
+    # SPM25
+    #unzip /tmp/packages/spm_standalone_25.01.02_Linux.zip -d /tmp/ && \
+    #mv /tmp/spm_standalone /tmp/spm25_standalone && \
+    #mv /tmp/spm25_standalone /usr/local && \
+    # CONNv2407
+    #unzip /tmp/packages/conn22v2407_standalone_jammy_R2024b.zip -d /usr/local && \
+    #chmod 755 /usr/local/conn22v2407_standalone/run_conn.sh && \
+    #chmod 755 /usr/local/conn22v2407_standalone/conn && \
+    # FSL
+    #tar -xf /tmp/packages/fsl-6.0.7.18-jammy.tar.gz -C /usr/local/ && \
+    # Git Scripts
+    mkdir -p /home/brain/git && \
+    cd /home/brain/git && \
+    git clone https://gitlab.com/kytk/fs-scripts.git && \
+    git clone https://gitlab.com/kytk/kn-scripts.git
+    
+
+#------------------------------------------------------------------------------
+# Stage 2: The "Final" Stage
+# - Starts from a clean Ubuntu base image.
+# - Installs only runtime dependencies.
+# - Copies the pre-built software from the "builder" stage.
+# - Configures the user and environment.
+#------------------------------------------------------------------------------
 FROM ubuntu:22.04
 
-ENV DEBIAN_FRONTEND=noninteractive
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Asia/Tokyo \
+    DISPLAY=:1
 
-## General
-# Change default sh from Dash to Bash
-#RUN rm /bin/sh && ln -s /bin/bash /bin/sh
+# Part 1: Install runtime dependencies
+RUN --mount=type=bind,source=packages,target=/tmp/packages \
+    set -ex && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+      # XFCE Desktop & VNC
+      xfce4-session xfce4-panel xfwm4 xfce4-terminal xfce4-settings \
+      xfdesktop4 xfce4-screenshooter xfce4-appfinder \
+      shimmer-themes \
+      thunar thunar-archive-plugin file-roller xdg-utils \
+      gnome-icon-theme tango-icon-theme elementary-xfce-icon-theme \
+      libgtk2.0-0 xinit \
+      tightvncserver novnc websockify net-tools supervisor \
+      x11vnc xvfb dbus-x11 sudo \
+      dbus \
+      # Python
+      python3-pip python3-venv python3-tk python3-gpg \
+      # Core Utilities
+      wget tzdata iputils-ping less nano rsync locate git apt-utils apt-file \
+      apturl at-spi2-core bc dc ca-certificates default-jre evince gedit \
+      gnome-system-monitor gnome-system-tools baobab imagemagick \
+      vim rename ntp tree unzip zip p7zip-full pigz csh tcsh gnupg meld \
+      # Fonts & Themes
+      software-properties-common fonts-noto fonts-noto-cjk \
+      appmenu-gtk-module-common appmenu-gtk2-module libappmenu-gtk2-parser0 \
+      # Apps & Libs
+      gawk sed libopenblas-base \
+      libjpeg62 libgtk2.0-0 language-pack-en gettext \
+      libncurses5 && \
+    apt-get install -y octave gnumeric && \
+    cd /tmp/packages && \
+    mkdir -p /home/brain/.config/xfce4/xfconf/xfce-perchannel-xml && \
+    # AlizaMS installation
+    apt install -y /tmp/packages/alizams_1.9.10+git0.95d7909-1+1.1_amd64.deb && \
+    # Timezone setup
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone && \
+    dpkg-reconfigure -f noninteractive tzdata && \
+    # Python package installation
+    python3 -m pip install --upgrade pip && \
+    pip install --no-cache-dir \
+       numpy pandas matplotlib seaborn jupyter notebook gdcm \
+       pydicom heudiconv nipype nibabel && \
+    # Firefox setup
+    install -d -m 0755 /etc/apt/keyrings && \
+    wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O- | \
+      gpg --dearmor -o /etc/apt/keyrings/packages.mozilla.org.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.gpg] https://packages.mozilla.org/apt mozilla main" | \
+      tee /etc/apt/sources.list.d/mozilla.list > /dev/null && \
+    echo 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000' | \
+      tee /etc/apt/preferences.d/mozilla && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends firefox && \
+    xdg-mime default firefox.desktop text/html && \
+    # Final apt cleanup for this layer
+    apt-get clean && \
+    apt-get autoremove -y --purge && \
+    rm -rf /var/lib/apt/lists/*
 
-# XFCE
-RUN apt-get update && \
-    apt-get install -y xfce4 xfce4-terminal xfce4-indicator-plugin  \
-     xfce4-clipman xfce4-clipman-plugin xfce4-statusnotifier-plugin  \
-     xfce4-power-manager-plugins xfce4-screenshooter \
-     lightdm lightdm-gtk-greeter lightdm-gtk-greeter-settings \
-     shimmer-themes network-manager-gnome xinit build-essential  \
-     dkms thunar-archive-plugin file-roller gawk xdg-utils 
+# Part 1.5: Copy lin4neuro-parts
+RUN git clone https://gitlab.com/kytk/lin4neuro-jammy.git && \
+    mkdir -p /home/brain/.local/share && \
+    cp -r lin4neuro-jammy/lin4neuro-parts/local/share/* \
+          /home/brain/.local/share/ && \
+    cp /usr/share/applications/firefox.desktop  \
+      /home/brain/.local/share/applications/ 
 
-# Python
-RUN apt-get install -y python3-pip python3-venv python3-dev python3-tk \
-    python3-gpg 
+# Part 2: Copy pre-built applications from the builder stage
+COPY --from=builder /usr/local/ /usr/local/
+COPY --from=builder /home/brain/git/ /home/brain/git/
+#COPY --from=builder /home/brain/freesurfer/ /home/brain/freesurfer/
+#COPY --from=builder /home/brain/matlab/ /home/brain/matlab/
 
-RUN python3 -m pip install --upgrade pip
-RUN pip install numpy pandas pydicom gdcm dcm2bids heudiconv \
-     nipype nibabel jupyter notebook bash_kernel && \
-    python3 -m bash_kernel.install
+# Part 3: User setup and configuration
+COPY deep_ocean.png /usr/share/backgrounds/
+COPY bash_aliases /etc/skel/.bash_aliases
+COPY bash_aliases /root/.bash_aliases
+COPY bash_aliases /home/brain/.bash_aliases
+COPY startup.m /home/brain/matlab/
+RUN rm -f /usr/share/backgrounds/xfce/xfce*.*p*g && \
+    chmod 644 /root/.bash_aliases && \
+    chmod 644 /etc/skel/.bash_aliases
 
+RUN set -ex && \
+    sed -i "s/UI.initSetting('resize', 'off');/UI.initSetting('resize', 'local');/g" /usr/share/novnc/app/ui.js && \
+    useradd -m -s /bin/bash brain && \
+    echo "brain:lin4neuro" | chpasswd && \
+    adduser brain sudo && \
+    cp /etc/skel/.bashrc /home/brain/.bashrc && \
+    echo '# Load .bashrc for bash login shells' > /home/brain/.profile && \
+    echo 'if [ -n "$BASH_VERSION" ]; then' >> /home/brain/.profile && \
+    echo '  . ~/.bashrc' >> /home/brain/.profile && \
+    echo 'fi' >> /home/brain/.profile && \
+    chmod 644 /home/brain/.bash_aliases /home/brain/.profile && \
+    mkdir -p /home/brain/.vnc && \
+    echo "lin4neuro" | vncpasswd -f > /home/brain/.vnc/passwd && \
+    chmod 600 /home/brain/.vnc/passwd && \
+    chown -R brain:brain /home/brain 
+    #chown -R brain:brain  /usr/local/freesurfer/8.1.0/subjects \
+    #      /usr/local/spm25_standalone /usr/local/conn22v2407_standalone
 
-# Install utilities
-RUN apt-get install -y git apt-utils at-spi2-core bc byobu curl wget dc \
- default-jre evince exfatprogs gedit  \
- gnome-system-monitor gnome-system-tools gparted  \
- imagemagick rename ntp system-config-printer  \
- tree unzip update-manager vim alsa-base \
- wajig xfce4-screenshooter zip ntp tcsh baobab xterm     \
- bleachbit libopenblas-base cups apturl dmz-cursor-theme \
- chntpw gddrescue p7zip-full gnupg eog meld libjpeg62 \
- software-properties-common fonts-noto mupdf mupdf-tools pigz \
- ristretto pinta firefox libreoffice libreoffice-l10n-ja
- 
-# Install Google-chrome
-RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-RUN apt install -y ./google-chrome-stable_current_amd64.deb
-RUN rm google-chrome-stable_current_amd64.deb
+# Part 4: System cleanup
+RUN set -ex && \
+    # Purge removed package configs
+    if [ $(dpkg -l | egrep ^rc | wc -l) -gt 0 ]; then \
+      dpkg -l | awk '/^rc/ {print $2}' | xargs sudo dpkg --purge; \
+    fi && \
+    # Clean pip cache
+    pip cache purge && \
+    # Clear logs
+    find /var/log/ -type f -exec cp -f /dev/null {} \; && \
+    # Remove documentation and man pages
+    #find /usr/share/doc -depth -type f ! -name copyright -delete && \
+    #find /usr/share/doc -empty -delete && \
+    #rm -rf /usr/share/man /usr/share/groff /usr/share/info \
+    #       /usr/share/lintian /usr/share/linda /var/cache/man && \
+    # Remove locales
+    find /usr/share/locale -maxdepth 1 -mindepth 1 ! -name 'en*' -exec rm -r {} \;
 
+## Part 5: MATLAB MCR cleanup
+#RUN set -ex && \
+#    # This part contains extensive cleanup for the MATLAB runtime.
+#    # It removes documentation, files for other platforms, development headers,
+#    # and unused toolboxes to significantly reduce its size.
+#    cd /usr/local/MATLAB/MCR/R2024b && \
+#    rm -rf help/ patents.txt trademarks.txt matlabruntime_license_agreement.pdf && \
+#    find . -type d -name "*doc*" -exec rm -rf {} + && \
+#    find . -type d -name "*example*" -exec rm -rf {} + && \
+#    find . -type d -name "*demo*" -exec rm -rf {} + && \
+#    find . -type d -name "*tutorial*" -exec rm -rf {} + && \
+#    find . -name "*.pdf" -delete && find . -name "*.html" -delete && find . -name "*.htm" -delete && \
+#    find . -name "*win32*" -delete && find . -name "*win64*" -delete && find . -name "*maci*" -delete && \
+#    find . -name "*Darwin*" -delete && find . -name "*.exe" -delete && find . -name "*.dll" -delete && \
+#    find . -name "*.dylib" -delete && \
+#    find . -name "*.h" -delete && find . -name "*.hpp" -delete && find . -name "*.c" -delete && \
+#    find . -name "*.cpp" -delete && find . -name "*.m~" -delete && find . -name "*.bak" -delete && \
+#    find . -name "*.log" -delete && find . -name "*.tmp" -delete && find . -name ".DS_Store" -delete && \
+#    cd toolbox && \
+#    rm -rf simulink* stateflow* sldv* slvnv* sl3d* slrt* sldo* rtw* simscape* simevents* simpowersys* \
+#           simrf* simbio* automotive* driving* vehicle* uav* lidar* radar* aerospace* satellite* \
+#           antenna* phased* finance* econ* risk* trading* robotics* nav* control* robust* fuzzy* \
+#           slcontrol* rf* mixed* serdes* antenna* eda* hdlcoder* hdlverifier* fixedpoint* vision* \
+#           audio* dsp* comm* wireless* nnet* deeplearning* reinforcementlearning* textanalytics* \
+#           predmaint* gads* optim* globaloptim* bioinfo* biograph* coder* gpucoder* polyspace* \
+#           matlab*test* sltest* coverage* requirements* appdesigner* uicomponents* instrument* \
+#           daq* imaq* opc* database* datafeed* spreadsheet* 2>/dev/null || true
 
-# Japanese environment 
-RUN apt-get install -y language-pack-ja manpages-ja \
-    fcitx fcitx-mozc fcitx-config-gtk \
-    nkf im-config 
+# Part 6: Final configuration
+RUN set -ex && \
+    mkdir -p /home/brain/logs && \
+    chmod 1777 /tmp && \
+    mkdir -p /home/brain/.config/menus && \
+    mkdir -p /home/brain/.config/xfce4/terminal && \
+    chown -R brain:brain /home/brain/.config && \
+    chown -R brain:brain /home/brain/logs && \
+    mkdir -p /home/brain/.dbus && \
+    chown -R brain:brain /home/brain/.dbus
 
+# Copy configuration files
+COPY xfce4-desktop.xml /home/brain/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
+COPY xfce4-panel.xml /home/brain/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
+COPY xfce-applications.menu /home/brain/.config/menus/xfce-applications.menu
+COPY terminalrc /home/brain/.config/xfce4/terminal/terminalrc
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY startup.sh /usr/local/bin/startup.sh
 
-##### Lin4Neuro #####
-RUN mkdir /etc/skel/git && cd /etc/skel/git && \
-    git clone https://gitlab.com/kytk/lin4neuro-jammy.git
-ENV parts=/etc/skel/git/lin4neuro-jammy/lin4neuro-parts
+# Set final permissions and ownership
+RUN chown brain:brain /home/brain/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    chown brain:brain /home/brain/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml && \
+    chown brain:brain /home/brain/.config/xfce4/terminal/terminalrc && \
+    chmod +x /usr/local/bin/entrypoint.sh && \
+    chmod +x /usr/local/bin/startup.sh
 
-# Icons and Applications
-RUN mkdir -p /etc/skel/.local/share && \ 
-    cp -r ${parts}/local/share/icons /etc/skel/.local/share/ && \
-    cp -r ${parts}/local/share/applications /etc/skel/.local/share/
+# Expose port for noVNC
+EXPOSE 6080
 
-# Customized menu
-RUN mkdir -p /etc/skel/.config/menus && \
-    cp ${parts}/config/menus/xfce-applications.menu /etc/skel/.config/menus
+# startup.sh runs as ROOT first, then switches to brain user
+ENV USER=brain
 
-# Neuroimaging.directory
-RUN mkdir -p /etc/skel/.local/share/desktop-directories && \
-    cp ${parts}/local/share/desktop-directories/Neuroimaging.directory \
-       /etc/skel/.local/share/desktop-directories
-
-# Background image and remove an unnecessary image file
-RUN cp ${parts}/backgrounds/deep_ocean.png /usr/share/backgrounds && \
-    rm /usr/share/backgrounds/xfce/xfce-stripes.png && \
-    ln -s /usr/share/backgrounds/deep_ocean.png /usr/share/backgrounds/xfce/xfce-stripes.png
-
-# Customized panel, desktop, and theme
-RUN cp -r ${parts}/config/xfce4 /etc/skel/.config
-
-RUN echo "alias open='xdg-open &> /dev/null'" >> /etc/skel/.bash_aliases
-
-# DCMTK
-RUN apt-get install -y dcmtk
-
-# Talairach Daemon
-RUN cp -r ${parts}/tdaemon /usr/local && \
-    echo '' >> /etc/skel/.bash_aliases && \
-    echo '#tdaemon' >> /etc/skel/.bash_aliases && \
-    echo "alias tdaemon='java -jar /usr/local/tdaemon/talairach.jar'" >> /etc/skel/.bash_aliases
-
-# VirtualMRI
-RUN cd /usr/local && \
-    wget http://www.lin4neuro.net/lin4neuro/neuroimaging_software_packages/vmri.zip && \
-    unzip vmri.zip && rm vmri.zip
-
-# Mango
-RUN cd /usr/local && \
-    wget http://www.lin4neuro.net/lin4neuro/neuroimaging_software_packages/mango_unix.zip && \
-    unzip mango_unix.zip && rm mango_unix.zip && \
-    echo '' >> /etc/skel/.bash_aliases && \
-    echo '#Mango' >> /etc/skel/.bash_aliases && \
-    echo 'export PATH=$PATH:/usr/local/Mango' >> /etc/skel/.bash_aliases
-
-# MRIcroGL
-RUN cd /usr/local &&  \
-    wget http://www.lin4neuro.net/lin4neuro/neuroimaging_software_packages/MRIcroGL_linux.zip && unzip MRIcroGL_linux.zip && rm MRIcroGL_linux.zip && \
-    echo '' >> /etc/skel/.bash_aliases && \
-    echo '#MRIcroGL' >> /etc/skel/.bash_aliases && \
-    echo 'export PATH=$PATH:/usr/local/MRIcroGL' >> /etc/skel/.bash_aliases && \
-    echo 'export PATH=$PATH:/usr/local/MRIcroGL/Resources' >> /etc/skel/.bash_aliases
-
-# MRIcron
-RUN cd /usr/local && wget http://www.lin4neuro.net/lin4neuro/neuroimaging_software_packages/MRIcron_linux.zip && \
-    unzip MRIcron_linux.zip && rm MRIcron_linux.zip && \
-    cd mricron && \
-    find . -name 'dcm2niix' -exec rm {} \; && \
-    find . -name '*.bat' -exec rm {} \; && \
-    find . -type d -exec chmod 755 {} \; && \
-    find Resources -type f -exec chmod 644 {} \; && \
-    chmod 755 /usr/local/mricron/Resources/pigz_mricron && \
-    echo '' >> /etc/skel/.bash_aliases && \
-    echo '#MRIcron' >> /etc/skel/.bash_aliases && \
-    echo 'export PATH=$PATH:/usr/local/mricron' >> /etc/skel/.bash_aliases
-
-# Surf-Ice
-RUN cd /usr/local && wget http://www.lin4neuro.net/lin4neuro/neuroimaging_software_packages/surfice_linux.zip && \
-    unzip surfice_linux.zip && rm surfice_linux.zip && \
-    cd Surf_Ice && \
-    find . -type d -exec chmod 755 {} \; && \
-    find . -type f -exec chmod 644 {} \; && \
-    chmod 755 surfice* && \
-    chmod 644 surfice_Linux_Installation.txt && \
-    echo '' >> /etc/skel/.bash_aliases && \
-    echo '#Surf_Ice' >> /etc/skel/.bash_aliases && \
-    echo 'export PATH=$PATH:/usr/local/Surf_Ice' >> /etc/skel/.bash_aliases
-
-## FSL 6.0.7.6
-#RUN cd /usr/local && wget http://www.lin4neuro.net/lin4neuro/neuroimaging_software_packages/fsl-6.0.7.6-jammy.tar.gz && \
-#    tar -xvf fsl-6.0.7.6-jammy.tar.gz && rm fsl-6.0.7.6-jammy.tar.gz && \
-#    echo '' >> /etc/skel/.profile && \
-#    echo '# FSL Setup' >> /etc/skel/.profile && \
-#    echo 'FSLDIR=/usr/local/fsl' >> /etc/skel/.profile && \
-#    echo 'PATH=${FSLDIR}/share/fsl/bin:${PATH}' >> /etc/skel/.profile && \
-#    echo 'export FSLDIR PATH' >> /etc/skel/.profile && \
-#    echo '. ${FSLDIR}/etc/fslconf/fsl.sh' >> /etc/skel/.profile
-
-
-
-# Change login shell to bash
-#RUN chsh -s /bin/bash
-##### Lin4Neuro settings end #####
-
-
-# TigerVNC and nonVNC
-RUN apt-get install -y tigervnc-standalone-server tigervnc-common \
-    novnc websockify
-
-ARG UID=1000
-RUN useradd -m -u ${UID} brain && echo "brain:lin4neuro" | chpasswd && adduser brain sudo
-
-USER brain
-
-ENV SHELL=/bin/bash
-ENV QT4_IM_MODULE=fcitx
-ENV QT_IM_MODULE=fcitx
-ENV XMODIFIERS=@im=fcitx
-ENV GTK_IM_MODULE=fcitx
-
-COPY vncsettings.sh /home/brain
-COPY jpsettings.sh /home/brain
-COPY source_rc_profile.sh /home/brain
-
-
-
+# Set the default command to run on container start
+CMD ["/usr/local/bin/startup.sh"]
